@@ -30,3 +30,7 @@
 *.exe
 *.out
 *.app
+
+rapidJsonTest.pro
+rapidJsonTest.pro.user
+
