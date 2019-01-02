@@ -1,9 +1,5 @@
 // Example of parsing JSON to document by parts.
 
-// Using C++11 threads
-// Temporarily disable for clang (older version) due to incompatibility with libstdc++
-#if (__cplusplus >= 201103L || (defined(_MSC_VER) && _MSC_VER >= 1700)) && !defined(__clang__)
-
 #include "rapidjson/document.h"
 #include "rapidjson/error/en.h"
 #include "rapidjson/writer.h"
@@ -166,11 +162,4 @@ int main() {
     return EXIT_SUCCESS;
 }
 
-#else // Not supporting C++11
 
-#include <iostream>
-int main() {
-    std::cout << "This example requires C++11 compiler" << std::endl;
-}
-
-#endif
