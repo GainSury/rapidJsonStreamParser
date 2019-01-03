@@ -377,6 +377,17 @@ struct MyHandler : public BaseReaderHandler<UTF8<>, MyHandler> {
     int count;
 };
 
+class streamWrapper{
+public:
+    streamWrapper(char* buffer, size_t bufferSize)
+        : stream_(*this,buffer,bufferSize)
+        , mutex_()
+        , notEmpty_()
+        , Empty_()
+        , start_(true)
+    {
+    }
+
 class FileReadStream {
 public:
     typedef char Ch;    //!< Character type (byte).
@@ -386,39 +397,46 @@ public:
         \param buffer user-supplied buffer.
         \param bufferSize size of buffer in bytes. Must >=4 bytes.
     */
-    FileReadStream(char* buffer, size_t bufferSize,std::mutex& mutex) : buffer_(buffer), bufferSize_(bufferSize), bufferLast_(0), current_(buffer_), readCount_(0), count_(0), start_(true),mutex_(mutex) {
+    FileReadStream(streamWrapper& wrapper
+                   ,char* buffer
+                   , size_t bufferSize) :
+        wrapper_(wrapper)
+      , buffer_(buffer)
+      , bufferSize_(bufferSize)
+      , bufferLast_(0), current_(buffer_)
+      , readCount_(0)
+      , count_(0)
+      {
 
         RAPIDJSON_ASSERT(bufferSize >= 4);
     }
     ~FileReadStream(){
         //< 防止另外一个线程阻塞
-        Empty_.notify_one();
+        wrapper_.Empty_.notify_one();
     }
 
     Ch Peek() const {
         //< 如果缓冲区没有更新,阻塞
-        std::unique_lock<std::mutex> lock(mutex_);
+        std::unique_lock<std::mutex> lock(wrapper_.mutex_);
         while(Empty())
         {
-            Empty_.notify_one();
-            notEmpty_.wait(lock);
+           wrapper_.Empty_.notify_one();
+           wrapper_.notEmpty_.wait(lock);
         }
-        start_ = false;
-
-
+        wrapper_.start_ = false;
         return *current_;
     }
     Ch Take() {
         //< 锁-检测buffer是否更新
         {
             //< 如果缓冲区没有更新,阻塞
-            std::unique_lock<std::mutex> lock(mutex_);
+            std::unique_lock<std::mutex> lock(wrapper_.mutex_);
             while(Empty())
             {
-                Empty_.notify_one();
-                notEmpty_.wait(lock);
+                wrapper_.Empty_.notify_one();
+                wrapper_.notEmpty_.wait(lock);
             }
-            start_ = false;
+            wrapper_.start_ = false;
         }
 
 
@@ -439,7 +457,7 @@ public:
 
     bool Empty() const
     {
-        if(start_)
+        if(wrapper_.start_)
             return true;
         else
             return current_ == bufferLast_;
@@ -455,57 +473,63 @@ public:
             //< 锁-检测buffer是否更新
             {
                 //< 如果缓冲区没有更新,阻塞
-                std::unique_lock<std::mutex> lock(mutex_);
+                std::unique_lock<std::mutex> lock(wrapper_.mutex_);
                 while(Empty())
                 {
-                    Empty_.notify_one();
-                    notEmpty_.wait(lock);
+                    wrapper_.Empty_.notify_one();
+                    wrapper_.notEmpty_.wait(lock);
                 }
-                start_ = false;
+                wrapper_.start_ = false;
             }
         }
     }
-
+    streamWrapper& wrapper_;
     Ch *buffer_;
     size_t bufferSize_;
     Ch *bufferLast_;
     Ch *current_;
     size_t readCount_;
     size_t count_;  //!< Number of characters read
-    std::condition_variable notEmpty_;
-    std::condition_variable Empty_;
-    std::mutex& mutex_;
-    bool start_;
 
 };
 
+// 类成员
+    FileReadStream stream_;
+    std::mutex mutex_;
+    std::condition_variable notEmpty_;
+    std::condition_variable Empty_;
+    bool start_;
+};
 
 size_t write_data_call_back(char *buf, size_t size,
-                                          size_t nmemb, FileReadStream *pIs)
+                                          size_t nmemb, streamWrapper *pIs)
 {
     const size_t nRealSize = size * nmemb;
+    int realSize = static_cast<int>(nRealSize);
 
     //< 等待为空,不为空,阻塞.
     {
         std::unique_lock<std::mutex> lock(pIs->mutex_);
-        while(!pIs->Empty())
+        while(!pIs->stream_.Empty())
             pIs->Empty_.wait(lock);
 
         //拷贝数据
-        memcpy(pIs->buffer_,buf,nRealSize);
-        pIs->readCount_ = nRealSize;
-        pIs->bufferLast_ = pIs->buffer_ + nRealSize - 1;
-        pIs->current_ = pIs->buffer_;
+        memcpy(pIs->stream_.buffer_,buf,realSize);
+        pIs->stream_.readCount_ = realSize;
+        pIs->stream_.bufferLast_ = pIs->stream_.buffer_ + realSize - 1;
+        pIs->stream_.current_ = pIs->stream_.buffer_;
         pIs->notEmpty_.notify_one();
+        pIs->start_=false;
     }
 
     return nRealSize;
 }
 
-void foo(FileReadStream* pIs)
+void foo(streamWrapper* pIs)
 {
     auto pCurl = curl_easy_init();
-    char* pStrquery = "http://127.0.0.1:8086/query?db=iscs6000&chunked=true&chunk_size=20&q=select%20%2A%20from%20ai_sample_result";
+//    char* pStrquery = "http://127.0.0.1:8086/query?db=iscs6000&chunked=true&chunk_size=20&q=select%20%2A%20from%20ai_sample_result";
+    char* pStrquery = "http://127.0.0.1:8086/query?db=NOAA_water_database&chunked=true&chunk_size=20&q=select%20%2A%20from%20h2o_pH";
 
     curl_easy_reset(pCurl);
     curl_easy_setopt(pCurl, CURLOPT_URL, pStrquery);
@@ -518,13 +542,11 @@ void foo(FileReadStream* pIs)
     cout << "fuck" << endl;
 }
 
-void parsethread(FileReadStream* pIs,std::mutex& mutex)
-{
-    char buffer[65535];
-    pIs = new FileReadStream(buffer,sizeof(buffer));
-    pIs->Read();
-
-}
+//void parsethread(FileReadStream* pIs)
+//{
+//    char buffer[65535];
+//    pIs = new FileReadStream(buffer,sizeof(buffer));
+//}
 
 
 
@@ -534,17 +556,16 @@ int main(int argc, char *argv[])
     Q_UNUSED(argv);
 
     using namespace rapidjson;
-    FileReadStream *is;
-    std::mutex mutex;
-    thread t1(parsethread,is,mutex);
+    char buffer[65535];
+    streamWrapper wrapper(buffer,sizeof(buffer));
+
     Reader reader;
     MyHandler handler;
-    thread t2(foo,is);
+    thread t2(foo,&wrapper);
 
 
     while(1)
-        if(!is->Empty())
-            reader.Parse<kParseStopWhenDoneFlag>(*is,handler);
+        reader.Parse<kParseStopWhenDoneFlag>(wrapper.stream_,handler);
     cout <<"count :" << handler.count <<endl;
 
 }
