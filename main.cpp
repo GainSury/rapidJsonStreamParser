@@ -51,6 +51,8 @@ struct JsonHandler : public BaseReaderHandler<UTF8<>, MyHandler> {
         //< todo to initialize
     }
     bool StartObject() {
+        cout << "before StartObject():"  << stateToString(state_) << endl;
+
         switch (state_) {
         case kExpectObjectStart:
             state_ = kExpectResultOrErr;
@@ -59,33 +61,112 @@ struct JsonHandler : public BaseReaderHandler<UTF8<>, MyHandler> {
             return false;
         }
 
-        cout << "StartObject() current state " <<<< endl; count++; return true;
+
+
     }
     bool EndObject(SizeType memberCount) {
-        cout << "EndObject(" << memberCount << ")" << endl; return true;
+        cout << "before EndObject():"  << stateToString(state_) << endl;
+
+        switch (state_) {
+        case kExpectObjectEnd:
+            state_ = kObjectEnd;
+            return true;
+        default:
+            return false;
+        }
     }
     bool StartArray() {
-        cout << "StartArray()" << endl; return true;
+        cout << "before StartArray():"  << stateToString(state_) << endl;
+
+        switch (state_) {
+        case kExpectObjectStart:
+            state_ = kExpectResultOrErr;
+            return true;
+        default:
+            return false;
+        }
     }
     bool EndArray(SizeType elementCount) {
-        cout << "EndArray(" << elementCount << ")" << endl; return true;
+        cout << "before EndArray():"  << stateToString(state_) << endl;
+
+        switch (state_) {
+        case kExpectObjectStart:
+            state_ = kExpectResultOrErr;
+            return true;
+        default:
+            return false;
+        }
     }
 
 
     bool Key(const char* str, SizeType length, bool copy) {
-        cout << "Key(" << str << ", " << length << ", " << boolalpha << copy << ")" << endl;
-        return true;
+        cout << "before Key():"  << stateToString(state_) ;
+        cout << "||  Key(" << str << ", " << length << ", " << boolalpha << copy << ")" << endl;
+
+        if( strcmp( str, "error") == 0 && state_ == kExpectResultOrErr)
+        {
+            state_ = kExpectErrDesc;
+            return true;
+        }
+        else if(strcmp( str, "result" ) == 0 && state_ == kExpectResultOrErr )
+        {
+            state_ = kExpectResultArrayStart;
+            return true;
+        }
+        else
+            return false;
+//        switch (state_) {
+//        case kExpectObjectStart:
+//            state_ = kExpectResultOrErr;
+//            return true;
+//        default:
+//            return false;
+//        }
     }
 
-    bool Null() { cout << "Null()" << endl; return true; }
-    bool Bool(bool b) { cout << "Bool(" << boolalpha << b << ")" << endl; return true; }
+    bool Null() {
+        cout << "before Null():"  << stateToString(state_) ;
+        cout << "|| Null()" << endl;
+        switch (state_) {
+        case kExpectObjectStart:
+            state_ = kExpectResultOrErr;
+            return true;
+        default:
+            return false;
+        }
+    }
+    bool Bool(bool b) {
+        cout << "before Bool():"  << stateToString(state_) ;
+        cout << "|| Bool(" << boolalpha << b << ")" << endl;
+        switch (state_) {
+        case kExpectObjectStart:
+            state_ = kExpectResultOrErr;
+            return true;
+        default:
+            return false;
+        }
+    }
     bool String(const char* str, SizeType length, bool copy) {
-        cout << "String(" << str << ", " << length << ", " << boolalpha << copy << ")" << endl;
-        return true;
+        cout << "before String():"  << stateToString(state_) ;
+        cout << "|| String(" << str << ", " << length << ", " << boolalpha << copy << ")" << endl;
+        switch (state_) {
+        case kExpectErrDesc:
+           state_ = kExpectObjectEnd;
+           return true;
+        default:
+           return false;
+        }
     }
     bool RawNumber(const Ch* str, SizeType length, bool copy){
-        cout << "RawNumber(" << str << ", " << length << ", " << boolalpha << copy << ")" << endl;
-        return true;
+        cout << "before RawNumber():"  << stateToString(state_) ;
+        cout << "|| RawNumber(" << str << ", " << length << ", " << boolalpha << copy << ")" << endl;
+        switch (state_) {
+        case kExpectObjectStart:
+           state_ = kExpectResultOrErr;
+           return true;
+        default:
+           return false;
+        }
     }
 
 
@@ -279,9 +360,14 @@ int main(int argc, char *argv[])
 
     using namespace rapidjson;
 
-    const char *url =  "http://127.0.0.1:8086/query?db=iscs6000&chunked=true&chunk_size=20&epoch=ms&q=select%20%2A%20from%20ai_sample_result%20limit%2020";
+//    const char *url =  "http://127.0.0.1:8086/query?db=iscs6000&chunked=true&chunk_size=20&epoch=ms&q=select%20%2A%20from%20ai_sample_result%20limit%2020";
+//    const char *url = "http://127.0.0.1:8086/query?db=NOAA_water_database&chunked=true&chunk_size=20&q=select%20%2A%20from%20h2o_pH";
+
+    // for mac err test
+    const char *url = "http://127.0.0.1:8086/query?db=NOAA_water_database&chunked=true&chunk_size=20&q1=select%20%2A%20from%20h2o_pH";
     URL_FILE *handle;
     handle = url_fopen(url, "r");
+//    handle = url_fopen(url_err_test, "r");
     if(!handle) {
       printf("couldn't url_fopen() %s\n", url);
       return 2;
@@ -290,7 +376,7 @@ int main(int argc, char *argv[])
     UrlReadStream stream(handle);
 
     Reader reader;
-    MyHandler handler;
+    JsonHandler handler;
 
 
     while(1)
@@ -298,7 +384,7 @@ int main(int argc, char *argv[])
         if(reader.Parse<kParseNumbersAsStringsFlag>(stream,handler))
             break;
     }
-    cout <<"count :" << handler.count <<endl;
+
     if (reader.HasParseError()) {
         std::cout << "Error at offset " << reader.GetErrorOffset() << ": " << GetParseError_En(reader.GetParseErrorCode()) << std::endl;
         return EXIT_FAILURE;
