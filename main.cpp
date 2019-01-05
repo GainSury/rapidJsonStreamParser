@@ -6,12 +6,9 @@
 #include "rapidjson/error/en.h"
 #include <QtCore>
 
-#include <thread>
-#include <mutex>
-#include <condition_variable>
-#include "curl/curl.h"
+#include "curlreadstream.h"
 
-#include "curl_fopen.h"
+
 #include <vector>
 
 using namespace rapidjson;
@@ -45,17 +42,28 @@ struct MyHandler : public BaseReaderHandler<UTF8<>, MyHandler> {
 
 
 
-struct JsonHandler : public BaseReaderHandler<UTF8<>, MyHandler> {
-    JsonHandler():
-        state_(kExpectObjectStart){
+struct CChunkedJsonHandler : public BaseReaderHandler<UTF8<>, MyHandler> {
+    CChunkedJsonHandler():
+        state_(kExpectObjectStart),
+        nIndex(0)
+    {
         //< todo to initialize
+
+
     }
     bool StartObject() {
-        cout << "before StartObject():"  << stateToString(state_) << endl;
+//        cout << "before StartObject():"  << stateToString(state_) << endl;
 
         switch (state_) {
         case kExpectObjectStart:
+//            cout << "\n\n\nnew object ||||\n\n\n" << endl;
             state_ = kExpectResultOrErr;
+            return true;
+        case kExpectResultObjectStart:
+            state_ = kExpectKeyStateMentId;
+            return true;
+        case kExpectSeriesObjectStart:
+            state_ = kExpectKeyName;
             return true;
         default:
             return false;
@@ -65,33 +73,85 @@ struct JsonHandler : public BaseReaderHandler<UTF8<>, MyHandler> {
 
     }
     bool EndObject(SizeType memberCount) {
-        cout << "before EndObject():"  << stateToString(state_) << endl;
+//        cout << "before EndObject():"  << stateToString(state_) << endl;
 
         switch (state_) {
         case kExpectObjectEnd:
-            state_ = kObjectEnd;
+            state_ = kExpectObjectStart;
+            return true;
+        case kExpectSeriesObjectEndOrKeyPartial:
+            state_ = kExpectSeriesArrayEnd;
+            return true;
+        case kExpectResultObjectEndOrKeyPartial:
+            state_ = kExpectResultArrayEnd;
             return true;
         default:
             return false;
         }
     }
     bool StartArray() {
-        cout << "before StartArray():"  << stateToString(state_) << endl;
+//        cout << "before StartArray():"  << stateToString(state_) << endl;
 
         switch (state_) {
         case kExpectObjectStart:
             state_ = kExpectResultOrErr;
             return true;
+        case kExpectResultArrayStart:
+            state_ = kExpectResultObjectStart;
+            return true;
+        case kExpectSeriesArrayStart:
+            state_ = kExpectSeriesObjectStart;
+            return true;
+        case kExpectColumnsArrayStart:
+            state_ = kExpectColumnsValueOrArrayEnd;
+            return true;
+        case kExpectValuesArrayStart:
+            state_ = kExpectValuesArrayDetailsArrayStart;
+            return true;
+        case kExpectValuesArrayDetailsArrayStart:
+            state_ = kExpectValuesArrayDetailsValueOrArrayEnd;
+            return true;
+        case kExpectValuesArrayEndOrDetailsArrayStart:
+            state_ = kExpectValuesArrayDetailsValueOrArrayEnd;
+            return true;
+
+
         default:
             return false;
         }
     }
     bool EndArray(SizeType elementCount) {
-        cout << "before EndArray():"  << stateToString(state_) << endl;
+//        cout << "before EndArray():"  << stateToString(state_) << endl;
 
         switch (state_) {
         case kExpectObjectStart:
             state_ = kExpectResultOrErr;
+            return true;
+        case kExpectColumnsValueOrArrayEnd:
+            state_ = kExpectKeyValues;
+            return true;
+        case kExpectValuesArrayDetailsValueOrArrayEnd:
+            std::cout << m_strCurMeasurementName << ",key_id_tag=";
+
+
+            std::cout << m_strVecvalues[1] << " status=";//输出tag
+            std::cout << m_strVecvalues[2] << ",value=" << m_strVecvalues[3] << " time=";         //输出field
+            std::cout << m_strVecvalues[0] <<"\n";
+
+            ++nIndex;
+            m_strVecvalues.clear();
+            state_= kExpectValuesArrayEndOrDetailsArrayStart;
+
+           return true;
+        case kExpectValuesArrayEndOrDetailsArrayStart:
+
+            state_= kExpectSeriesObjectEndOrKeyPartial;
+           return true;
+        case kExpectSeriesArrayEnd:
+            state_ = kExpectResultObjectEndOrKeyPartial;
+            return true;
+        case kExpectResultArrayEnd:
+            state_ = kExpectObjectEnd;
             return true;
         default:
             return false;
@@ -100,69 +160,120 @@ struct JsonHandler : public BaseReaderHandler<UTF8<>, MyHandler> {
 
 
     bool Key(const char* str, SizeType length, bool copy) {
-        cout << "before Key():"  << stateToString(state_) ;
-        cout << "||  Key(" << str << ", " << length << ", " << boolalpha << copy << ")" << endl;
+//        cout << "before Key():"  << stateToString(state_) ;
+//        cout << "||  Key(" << str << ", " << length << ", " << boolalpha << copy << ")" << endl;
 
-        if( strcmp( str, "error") == 0 && state_ == kExpectResultOrErr)
-        {
-            state_ = kExpectErrDesc;
-            return true;
-        }
-        else if(strcmp( str, "result" ) == 0 && state_ == kExpectResultOrErr )
-        {
-            state_ = kExpectResultArrayStart;
-            return true;
-        }
-        else
-            return false;
-//        switch (state_) {
-//        case kExpectObjectStart:
-//            state_ = kExpectResultOrErr;
-//            return true;
-//        default:
-//            return false;
-//        }
-    }
-
-    bool Null() {
-        cout << "before Null():"  << stateToString(state_) ;
-        cout << "|| Null()" << endl;
         switch (state_) {
-        case kExpectObjectStart:
-            state_ = kExpectResultOrErr;
+        case kExpectResultOrErr:
+            if( strcmp(str,"error")  == 0)
+            {
+                state_ = kExpectErrDesc;
+                return true;
+            }
+            else if (strcmp( str, "results" ) == 0)
+            {
+                state_ = kExpectResultArrayStart;
+                return true;
+            }
+            return false;
+
+        case kExpectKeyStateMentId:
+            state_ = kExpectValueNum;
+            return true;
+        case kExpectKeySeries:
+            state_ = kExpectSeriesArrayStart;
+            return true;
+        case kExpectKeyName:
+            state_ = kExpectNameValue;
+            return true;
+        case kExpectKeyColumns:
+            state_ = kExpectColumnsArrayStart;
+            return true;
+        case kExpectKeyValues:
+            state_ = kExpectValuesArrayStart;
+            return true;
+        case kExpectSeriesObjectEndOrKeyPartial:
+            state_ = kExpectSeriesObjectValueBool;
+            return true;
+        case kExpectResultObjectEndOrKeyPartial:
+            state_ = kExpectResultObjectValueBool;
             return true;
         default:
             return false;
         }
     }
-    bool Bool(bool b) {
-        cout << "before Bool():"  << stateToString(state_) ;
-        cout << "|| Bool(" << boolalpha << b << ")" << endl;
+
+    bool Null() {
+//        cout << "before Null():"  << stateToString(state_) ;
+//        cout << "|| Null()" << endl;
         switch (state_) {
         case kExpectObjectStart:
             state_ = kExpectResultOrErr;
+            return true;
+        case kExpectValuesArrayDetailsValueOrArrayEnd:
+            m_strVecvalues.push_back("null");
+           return true;
+        default:
+            return false;
+        }
+    }
+    bool Bool(bool b) {
+//        cout << "before Bool():"  << stateToString(state_) ;
+//        cout << "|| Bool(" << boolalpha << b << ")" << endl;
+        switch (state_) {
+        case kExpectObjectStart:
+            state_ = kExpectResultOrErr;
+            return true;
+        case kExpectValuesArrayDetailsValueOrArrayEnd:
+           if(b == true){
+               m_strVecvalues.push_back("true");
+           }
+           else{
+               m_strVecvalues.push_back("false");
+           }
+
+           return true;
+        case kExpectSeriesObjectValueBool:
+            state_ = kExpectSeriesObjectEndOrKeyPartial;
+            return true;
+        case kExpectResultObjectValueBool:
+            state_ = kExpectResultObjectEndOrKeyPartial;
             return true;
         default:
             return false;
         }
     }
     bool String(const char* str, SizeType length, bool copy) {
-        cout << "before String():"  << stateToString(state_) ;
-        cout << "|| String(" << str << ", " << length << ", " << boolalpha << copy << ")" << endl;
+//        cout << "before String():"  << stateToString(state_) ;
+//        cout << "|| String(" << str << ", " << length << ", " << boolalpha << copy << ")" << endl;
         switch (state_) {
         case kExpectErrDesc:
            state_ = kExpectObjectEnd;
+           return true;
+        case kExpectNameValue:
+           state_ = kExpectKeyColumns;
+
+           // 记录当前的measurements值
+           m_strCurMeasurementName = str;
+           return true;
+        case kExpectColumnsValueOrArrayEnd:
+           return true;
+        case kExpectValuesArrayDetailsValueOrArrayEnd:
+            m_strVecvalues.push_back(str);
            return true;
         default:
            return false;
         }
     }
     bool RawNumber(const Ch* str, SizeType length, bool copy){
-        cout << "before RawNumber():"  << stateToString(state_) ;
-        cout << "|| RawNumber(" << str << ", " << length << ", " << boolalpha << copy << ")" << endl;
+//        cout << "before RawNumber():"  << stateToString(state_) ;
+//        cout << "|| RawNumber(" << str << ", " << length << ", " << boolalpha << copy << ")" << endl;
         switch (state_) {
-        case kExpectObjectStart:
-           state_ = kExpectResultOrErr;
+        case kExpectValueNum:
+           state_ = kExpectKeySeries;
+           return true;
+        case kExpectValuesArrayDetailsValueOrArrayEnd:
+            m_strVecvalues.push_back(str);
            return true;
         default:
            return false;
@@ -170,12 +281,10 @@ struct JsonHandler : public BaseReaderHandler<UTF8<>, MyHandler> {
     }
 
 
+    std::string m_strCurMeasurementName;
 
-
-
-    std::string currentName;
-    std::vector<std::string> currentColumnName;
-    std::vector<std::string> currentColumnValue;
+    std::vector<std::string> m_strVecvalues;
+    size_t nIndex;
 
     //设备状态
     enum State {
@@ -195,17 +304,19 @@ struct JsonHandler : public BaseReaderHandler<UTF8<>, MyHandler> {
            kExpectKeyName,
            kExpectNameValue,
            kExpectKeyColumns,
-           kExpectKeyColumnsArrayStart,
+           kExpectColumnsArrayStart,
            kExpectColumnsValueOrArrayEnd,
            kExpectKeyValues,
            kExpectValuesArrayStart,
            kExpectValuesArrayDetailsArrayStart,
            kExpectValuesArrayDetailsValueOrArrayEnd,
            kExpectValuesArrayEndOrDetailsArrayStart,
-           kExpectSeriesObjectEnd,
+           kExpectSeriesObjectEndOrKeyPartial,
            kExpectSeriesArrayEnd,
-           kExpectResultObjectEnd,
-           kExpectResultArrayEnd
+           kExpectResultObjectEndOrKeyPartial,
+           kExpectResultArrayEnd,
+           kExpectSeriesObjectValueBool,
+           kExpectResultObjectValueBool,
    }state_;
 
    static std::string stateToString(State state)
@@ -243,8 +354,8 @@ struct JsonHandler : public BaseReaderHandler<UTF8<>, MyHandler> {
            return "kExpectNameValue";
        case kExpectKeyColumns:
            return "kExpectKeyColumns";
-       case kExpectKeyColumnsArrayStart:
-           return "kExpectKeyColumnsArrayStart";
+       case kExpectColumnsArrayStart:
+           return "kExpectColumnsArrayStart";
        case kExpectColumnsValueOrArrayEnd:
            return "kExpectColumnsValueOrArrayEnd";
        case kExpectKeyValues:
@@ -257,100 +368,24 @@ struct JsonHandler : public BaseReaderHandler<UTF8<>, MyHandler> {
            return "kExpectValuesArrayDetailsValueOrArrayEnd";
        case kExpectValuesArrayEndOrDetailsArrayStart:
            return "kExpectValuesArrayEndOrDetailsArrayStart";
-       case kExpectSeriesObjectEnd:
-           return "kExpectSeriesObjectEnd";
+       case kExpectSeriesObjectEndOrKeyPartial:
+           return "kExpectSeriesObjectEndOrKeyPartial";
        case kExpectSeriesArrayEnd:
            return "kExpectSeriesArrayEnd";
-       case kExpectResultObjectEnd:
-           return "kExpectResultObjectEnd";
+       case kExpectResultObjectEndOrKeyPartial:
+           return "kExpectResultObjectEndOrKeyPartial";
        case kExpectResultArrayEnd:
            return "kExpectResultArrayEnd";
-
+       case kExpectSeriesObjectValueBool:
+                  return "kExpectSeriesObjectValueBool";
+       case kExpectResultObjectValueBool:
+                  return "kExpectResultObjectValueBool";
 
        default:
            return "unknown state";
        }
    }
 };
-
-
-
-
-
-
-
-
-
-
-class UrlReadStream {
-public:
-    typedef char Ch;    //!< Character type (byte).
-
-    //! Constructor.
-    /*!
-        \param fp File pointer opened for read.
-        \param buffer user-supplied buffer.
-        \param bufferSize size of buffer in bytes. Must >=4 bytes.
-    */
-    UrlReadStream(URL_FILE * handle) : handle_(handle), bufferLast_(0), readCount_(0), count_(0), eof_(false) {
-        buffer_ = new char[1024];
-        bufferSize_ = 1024;
-        current_ = buffer_;
-        Read();
-    }
-    ~UrlReadStream()
-    {
-        delete buffer_;
-    }
-    Ch Peek() const { return *current_; }
-    Ch Take() { Ch c = *current_; Read(); return c; }
-    size_t Tell() const { return count_ + static_cast<size_t>(current_ - buffer_); }
-
-    // Not implemented
-    void Put(Ch) { RAPIDJSON_ASSERT(false); }
-    void Flush() { RAPIDJSON_ASSERT(false); }
-    Ch* PutBegin() { RAPIDJSON_ASSERT(false); return 0; }
-    size_t PutEnd(Ch*) { RAPIDJSON_ASSERT(false); return 0; }
-
-    // For encoding detection only.
-    const Ch* Peek4() const {
-        return (current_ + 4 <= bufferLast_) ? current_ : 0;
-    }
-
-private:
-    void Read() {
-        if (current_ < bufferLast_)
-            ++current_;
-        else if (!eof_) {
-            count_ += readCount_;
-
-            //< read data from handle
-            readCount_ = url_fread(buffer_, 1, sizeof(bufferSize_), handle_);
-
-            bufferLast_ = buffer_ + readCount_ - 1;
-            current_ = buffer_;
-
-            if (url_feof(handle_)) {
-                buffer_[readCount_] = '\0';
-                ++bufferLast_;
-                eof_ = true;
-            }
-        }
-    }
-
-    URL_FILE *handle_;
-    Ch *buffer_;
-    size_t bufferSize_;
-    Ch *bufferLast_;
-    Ch *current_;
-    size_t readCount_;
-    size_t count_;  //!< Number of characters read
-    bool eof_;
-};
-
-
-
-
 
 
 int main(int argc, char *argv[])
@@ -360,11 +395,21 @@ int main(int argc, char *argv[])
 
     using namespace rapidjson;
 
-//    const char *url =  "http://127.0.0.1:8086/query?db=iscs6000&chunked=true&chunk_size=20&epoch=ms&q=select%20%2A%20from%20ai_sample_result%20limit%2020";
+    //for linux test
+    const char *url =  "http://127.0.0.1:8086/query?db=iscs6000&chunked=true&chunk_size=2&epoch=ms&q=select%20%2A%20from%20ai_sample_result%20limit%201000000";
+
+    //for linux test generate line protocol
+//    const char *url =    "http://127.0.0.1:8086/query?db=iscs6000&chunked=true&pretty=true&chunk_size=2&epoch=ms&q=SELECT%20key_id_tag%2Cstatus%2Cvalue%2Ctime%20FROM%20ai_sample_result%20limit%2010";
+
+
+    //for mac test
 //    const char *url = "http://127.0.0.1:8086/query?db=NOAA_water_database&chunked=true&chunk_size=20&q=select%20%2A%20from%20h2o_pH";
 
+    //for linux err test3
+//    const char *url =  "http://127.0.0.1:8086/query?db=iscs6000&chunked=true&chunk_size=20&epoch=ms&q1=select%20%2A%20from%20ai_sample_result%20limit%2020";
+
     // for mac err test
-    const char *url = "http://127.0.0.1:8086/query?db=NOAA_water_database&chunked=true&chunk_size=20&q1=select%20%2A%20from%20h2o_pH";
+//    const char *url = "http://127.0.0.1:8086/query?db=NOAA_water_database&chunked=true&chunk_size=20&q1=select%20%2A%20from%20h2o_pH";
     URL_FILE *handle;
     handle = url_fopen(url, "r");
 //    handle = url_fopen(url_err_test, "r");
@@ -373,10 +418,12 @@ int main(int argc, char *argv[])
       return 2;
     }
 
+
     UrlReadStream stream(handle);
 
     Reader reader;
-    JsonHandler handler;
+//    MyHandler handler;
+    CChunkedJsonHandler handler;
 
 
     while(1)
@@ -389,6 +436,12 @@ int main(int argc, char *argv[])
         std::cout << "Error at offset " << reader.GetErrorOffset() << ": " << GetParseError_En(reader.GetParseErrorCode()) << std::endl;
         return EXIT_FAILURE;
     }
+    std::cout << "count: " << handler.nIndex << std::endl;
+    int nStatusCode = 0;
+    int nRc = curl_easy_getinfo(handle->handle.curl,CURLINFO_RESPONSE_CODE,&nStatusCode);
+
+    std::cout << "status code: " << nStatusCode  << std::endl;
+
      url_fclose(handle);
 
 }
