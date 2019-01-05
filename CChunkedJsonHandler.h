@@ -1,8 +1,14 @@
 #ifndef CCHUNKEDJSONHANDLER_H
 #define CCHUNKEDJSONHANDLER_H
 
-
-struct CChunkedJsonHandler : public BaseReaderHandler<UTF8<>, MyHandler> {
+#include "rapidjson/document.h"
+#include "rapidjson/reader.h"
+#include "rapidjson/error/en.h"
+#include <vector>
+#include <string>
+#include <iostream>
+struct CChunkedJsonHandler : public rapidjson::BaseReaderHandler<rapidjson::UTF8<>, CChunkedJsonHandler> {
+    typedef rapidjson::SizeType SizeType;
     CChunkedJsonHandler();
     bool StartObject();
     bool EndObject(SizeType memberCount);

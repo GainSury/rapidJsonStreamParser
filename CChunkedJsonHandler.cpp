@@ -1,9 +1,6 @@
 #include "CChunkedJsonHandler.h"
 
-CChunkedJsonHandler::CChunkedJsonHandler()
-{
 
-}
 
 CChunkedJsonHandler::CChunkedJsonHandler():
     state_(kExpectObjectStart),

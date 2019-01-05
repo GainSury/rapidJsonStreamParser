@@ -1,15 +1,14 @@
 
-#include "rapidjson/document.h"
-#include "rapidjson/reader.h"
+
 #include <cstdio>
 #include <iostream>
-#include "rapidjson/error/en.h"
+
 #include <QtCore>
 
 #include "curlreadstream.h"
+#include "CChunkedJsonHandler.h"
 
 
-#include <vector>
 
 using namespace rapidjson;
 using namespace std;

@@ -2,8 +2,11 @@
 #define CURLREADSTREAM_H
 
 #include "curl_fopen.h"
+#include "rapidjson/rapidjson.h"
 class UrlReadStream {
 public:
+
+
     typedef char Ch;    //!< Character type (byte).
 
     //! Constructor.
