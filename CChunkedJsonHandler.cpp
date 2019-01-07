@@ -2,9 +2,10 @@
 
 
 
-CChunkedJsonHandler::CChunkedJsonHandler():
+CChunkedJsonHandler::CChunkedJsonHandler(CGZipOStream &gGzipOs):
     state_(kExpectObjectStart),
-    nIndex(0)
+    nIndex(0),
+    m_gGzipOs(gGzipOs)
 {
     //< todo to initialize
 
@@ -94,12 +95,12 @@ bool CChunkedJsonHandler::EndArray(SizeType elementCount) {
         state_ = kExpectKeyValues;
         return true;
     case kExpectValuesArrayDetailsValueOrArrayEnd:
-        std::cout << m_strCurMeasurementName << ",key_id_tag=";
+        m_gGzipOs << m_strCurMeasurementName.c_str() << ",key_id_tag=";
 
 
-        std::cout << m_strVecvalues[1] << " status=";//输出tag
-        std::cout << m_strVecvalues[2] << ",value=" << m_strVecvalues[3] << " time=";         //输出field
-        std::cout << m_strVecvalues[0] <<"\n";
+        m_gGzipOs << m_strVecvalues[1].c_str() << " status=";//输出tag
+        m_gGzipOs << m_strVecvalues[2].c_str() << ",value=" << m_strVecvalues[3].c_str() << " ";         //输出field
+        m_gGzipOs << m_strVecvalues[0].c_str() <<"\n";//输出time
 
         ++nIndex;
         m_strVecvalues.clear();

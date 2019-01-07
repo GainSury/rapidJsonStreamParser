@@ -8,10 +8,34 @@
 #include "curlreadstream.h"
 #include "CChunkedJsonHandler.h"
 
+#include <qcompressor.h>
+
 
 
 using namespace rapidjson;
 using namespace std;
+
+
+
+
+
+void genDMLHeader(CGZipOStream& os)
+{
+
+//        linux header
+    os << "# DML\n" << "# CONTEXT-DATABASE:iscs6000\n" << "# CONTEXT-RETENTION-POLICY:autogen\n" << "# writing tsm data\n";
+//    std::cout <<"# DML\n"
+//                "# CONTEXT-DATABASE:iscs60000\n"
+//                "# CONTEXT-RETENTION-POLICY:autogen\n"
+//                "# writing tsm data" << std::endl;
+
+    //    mac header
+    //    std::cout <<" # DML\n"
+    //             "# CONTEXT-DATABASE:NOAA_water_database\n"
+    //             "# CONTEXT-RETENTION-POLICY:autogen\n"
+    //             "# writing tsm data" << std::endl;
+
+}
 
 
 
@@ -20,17 +44,20 @@ int main(int argc, char *argv[])
     Q_UNUSED(argc);
     Q_UNUSED(argv);
 
+    QTime t;
+    t.start();
+
     using namespace rapidjson;
 
     //for linux test
-//    const char *url =  "http://127.0.0.1:8086/query?db=iscs6000&chunked=true&chunk_size=2&epoch=ms&q=select%20%2A%20from%20ai_sample_result%20limit%201000000";
+    const char *url =  "http://127.0.0.1:8086/query?db=iscs6000&chunked=true&chunk_size=2&epoch=ms&q=select%20%2A%20from%20ai_sample_result%20limit%201000";
 
     //for linux test generate line protocol
 //    const char *url =    "http://127.0.0.1:8086/query?db=iscs6000&chunked=true&pretty=true&chunk_size=2&epoch=ms&q=SELECT%20key_id_tag%2Cstatus%2Cvalue%2Ctime%20FROM%20ai_sample_result%20limit%2010";
 
 
     //for mac test
-    const char *url = "http://127.0.0.1:8086/query?db=NOAA_water_database&chunked=true&chunk_size=20&epoch=ms&q=select%20%2A%20from%20h2o_pH";
+//    const char *url = "http://127.0.0.1:8086/query?db=NOAA_water_database&chunked=true&chunk_size=20&epoch=ms&q=select%20%2A%20from%20h2o_pH";
 
     //for linux err test3
 //    const char *url =  "http://127.0.0.1:8086/query?db=iscs6000&chunked=true&chunk_size=20&epoch=ms&q1=select%20%2A%20from%20ai_sample_result%20limit%2020";
@@ -50,8 +77,17 @@ int main(int argc, char *argv[])
 
     Reader reader;
 //    MyHandler handler;
-    CChunkedJsonHandler handler;
 
+
+    QString exportFilePath = "/home/logan/Desktop/export.txt.gz";
+    CGZipOStream os(exportFilePath);
+
+    if(!os)
+    {
+        return 1;
+    }
+    CChunkedJsonHandler handler(os);
+    genDMLHeader(os);
 
     while(1)
     {
@@ -63,11 +99,13 @@ int main(int argc, char *argv[])
         std::cout << "Error at offset " << reader.GetErrorOffset() << ": " << GetParseError_En(reader.GetParseErrorCode()) << std::endl;
         return EXIT_FAILURE;
     }
-    std::cout << "count: " << handler.nIndex << std::endl;
+    std::cout << "count: " << handler.nIndex  << "耗时: " << t.elapsed()/1000.0 << "s"<< std::endl;
     int nStatusCode = 0;
-    int nRc = curl_easy_getinfo(handle->handle.curl,CURLINFO_RESPONSE_CODE,&nStatusCode);
+    curl_easy_getinfo(handle->handle.curl,CURLINFO_RESPONSE_CODE,&nStatusCode);
 
     std::cout << "status code: " << nStatusCode  << std::endl;
+
+
 
      url_fclose(handle);
 

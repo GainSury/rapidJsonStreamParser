@@ -7,14 +7,16 @@
 #include <vector>
 #include <string>
 #include <iostream>
+
+#include "CGZipOStream.h"
 struct CChunkedJsonHandler : public rapidjson::BaseReaderHandler<rapidjson::UTF8<>, CChunkedJsonHandler> {
     typedef rapidjson::SizeType SizeType;
-    CChunkedJsonHandler();
+    CChunkedJsonHandler(CGZipOStream& m_gGzipOs);
     bool StartObject();
     bool EndObject(SizeType memberCount);
+
     bool StartArray();
     bool EndArray(SizeType elementCount);
-
 
     bool Key(const char* str, SizeType length, bool copy);
 
@@ -24,9 +26,7 @@ struct CChunkedJsonHandler : public rapidjson::BaseReaderHandler<rapidjson::UTF8
     bool RawNumber(const Ch* str, SizeType length, bool copy);
 
 
-    std::string m_strCurMeasurementName;
-    std::vector<std::string> m_strVecvalues;
-    size_t nIndex;
+
 
     //< 状态机
     enum State {
@@ -59,9 +59,18 @@ struct CChunkedJsonHandler : public rapidjson::BaseReaderHandler<rapidjson::UTF8
            kExpectResultArrayEnd,
            kExpectSeriesObjectValueBool,
            kExpectResultObjectValueBool,
-   }state_;
+    }state_;
 
-   static std::string stateToString(State state);
+
+
+    std::string m_strCurMeasurementName;
+    std::vector<std::string> m_strVecvalues;
+    size_t nIndex;
+    CGZipOStream& m_gGzipOs;
+
+    static std::string stateToString(State state);
+
+
 };
 
 #endif // CCHUNKEDJSONHANDLER_H
