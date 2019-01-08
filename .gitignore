@@ -34,3 +34,4 @@
 # qt project file
 *.pro
 *.pro.user
+*.autosave
