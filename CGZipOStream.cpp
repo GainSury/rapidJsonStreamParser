@@ -56,6 +56,8 @@ CGZipOStream::operator bool() const
 
 
 
+
+
 //CGZipOStream &CGZipOStream::operator <<(CGZipOStream &os, QByteArray &ba){
 //    QByteArray compBuf;
 //    if(QCompressor::gzipCompress(ba, compBuf)){
