@@ -2,49 +2,55 @@
 #define CGZIPOSTREAM_H
 
 #include <QtCore>
-#include <iostream>
 #include "zlib.h"
-
+#include <iostream>
 
 class CGZipOStream
 {
 public:
 
-    CGZipOStream(QString &filePath_);
+    CGZipOStream(QString filePath_);
     ~CGZipOStream();
 
     operator bool() const;
+    friend CGZipOStream &operator <<(CGZipOStream& os,const char* data){
+        //< 获取数据长度
+        int nDataStrlen = strlen(data);
 
-//    friend CGZipOStream& operator <<(CGZipOStream& os,QByteArray& ba)
-//    {
-//        QByteArray compBuf;
-//        if(QCompressor::gzipCompress(ba, compBuf)){
-//            os.m_destFile.write(compBuf);
-//        }
-
-//        return os;
-//    }
-
-    friend CGZipOStream& operator <<(CGZipOStream& os,const char* data){
-        if( os.m_nCurIdx + sizeof(data) > os.m_nBufSize -1)
+        //< 数据缓存到缓冲区,如果缓冲区长度不够,则压缩输入缓冲区中的数据
+        if( os.m_nInLen + nDataStrlen > os.m_nBufSize)
         {
-            //< 处理数据
-            os.m_objStream.avail_in = (uInt)os.m_nCurIdx;
-            os.m_objStream.avail_out = (uInt)os.m_nBufSize; // 不检查avail_out 因为分配了足够的空间
+            //< 更新输入输出缓冲区的参数
+            os.m_objStream.next_in =  (z_const Bytef *)os.m_inBuf;
+            os.m_objStream.next_out = (Bytef *)os.m_outBuf;
+            os.m_objStream.avail_in = (uInt)os.m_nInLen; //设置为当前输入缓冲区的数据长度
+            os.m_objStream.avail_out = (uInt)os.m_nBufSize;
 
-            deflate( &( os.m_objStream ),Z_NO_FLUSH);
-            //< 写入流数据
-            int nRc = os.m_destFile.write((char *)os.m_objStream.next_out
-                                , os.m_nBufSize - os.m_objStream.avail_out);
-            std::cout << "nRc: " << nRc << " writesize: "<< os.m_nBufSize - os.m_objStream.avail_out << std::endl;
+            int nRet = deflate( &( os.m_objStream ),Z_NO_FLUSH);
+            if(nRet != Z_OK)
+            {
+                //< todo logerror
 
+                os.m_openResult = false;
+                return os;
+            }
 
-            os.m_nCurIdx = 0;
+            //< 将压缩数据写入到文件中
+            int nRc = os.m_destFile.write((char *)os.m_outBuf
+                                , (char*)os.m_objStream.next_out - os.m_outBuf);
+            std::cout << "nRc: " << nRc << " writesize: "<< (char*)os.m_objStream.next_out - os.m_outBuf << std::endl;
+            if(nRc != (char*)os.m_objStream.next_out - os.m_outBuf)
+            {
+                //< todo logerror 写入文件流有错
+            }
+
+            //< 更新当前输入缓冲区数据长度
+            os.m_nInLen = 0;
 
         }
-        memcpy(os.m_inBuf+os.m_nCurIdx,data,sizeof(data));
-
-        os.m_nCurIdx += sizeof(data);
+        //< 追加输入数据到输入缓冲区
+        memcpy( os.m_inBuf + os.m_nInLen, data, nDataStrlen);
+        os.m_nInLen += nDataStrlen;
         return os;
     }
 private:
@@ -54,96 +60,7 @@ private:
     char* m_inBuf;
     char* m_outBuf;
     const size_t m_nBufSize;
-    size_t m_nCurIdx; //当前缓冲区需要压缩的数据长度
-    static bool compressToGzipTest(const void *pDataSrc, size_t nSizeSrc,
-                                      void **ppDataDst, size_t *pnSizeDst)
-    {
-        if (NULL == pDataSrc || 0 == nSizeSrc ||
-            NULL == ppDataDst || NULL == pnSizeDst)
-        {
-    //        LOGERROR("compressToGzip(): NULL == pDataSrc || 0 == nSizeSrc || "
-    //                 "NULL == ppDataDst || NULL == pnSizeSrc , return false !");
-            return false;
-        }
-
-        if (nSizeSrc >= 2147483647)
-        {
-            //< zlib支持的大小不止这么多，保险起见
-    //        LOGERROR("compressToGzip(): nSizeSrc >= 2147483647 , too big to compress !");
-            return false;
-        }
-
-        z_stream objStream;
-
-        objStream.zalloc = Z_NULL;
-        objStream.zfree = Z_NULL;
-        objStream.opaque = Z_NULL;
-
-        //< MAX_WBITS+16 : 使生成的目标内存中包含gzip头尾，见zlib说明
-        if (deflateInit2(&objStream, Z_DEFAULT_COMPRESSION, Z_DEFLATED,
-                         MAX_WBITS + 16, 8, Z_DEFAULT_STRATEGY) != Z_OK)
-        {
-    //        LOGERROR("compressToGzip(): deflateInit2 failed !");
-            return false;
-        }
-
-        //< 计算压缩后的最大长度
-        const size_t nSizeDstMax = deflateBound(&objStream, (uLong)nSizeSrc);
-
-        if (nSizeDstMax >= 2147483647)
-        {
-            //< zlib支持的大小不止这么多，保险起见
-    //        LOGERROR("compressToGzip(): nSizeDstMax >= 2147483647 , too big to compress !");
-            return false;
-        }
-
-        if (NULL != *ppDataDst)
-        {
-            //< 不用realloc，避免可能发生的拷贝
-            free(*ppDataDst);
-        }
-
-        //< 注意，函数调用者需在外部释放内存
-        *ppDataDst = malloc(nSizeDstMax);
-        if (NULL == *ppDataDst)
-        {
-    //        LOGERROR("compressToGzip(): malloc() failed !");
-            return false;
-        }
-
-        objStream.next_in  = (z_const Bytef *)pDataSrc;
-        objStream.avail_in  = (uInt)nSizeSrc;
-        objStream.next_out = (Bytef *)(*ppDataDst);
-        objStream.avail_out  = (uInt)nSizeDstMax;
-
-        const int nRc = deflate(&objStream, Z_FINISH);
-
-        if (deflateEnd(&objStream) != Z_OK)
-        {
-    //        LOGERROR("compressToGzip(): deflateEnd(&objStream) != Z_OK");
-        }
-
-        if (Z_STREAM_END == nRc)
-        {
-            //LOGDEBUG("compressToGzip(): OK ! nSizeSrc = %lu , nSizeDst = %lu",
-            //         (unsigned long long)nSizeSrc,
-            //         (unsigned long long)(objStream.total_out));
-
-            //< 外部释放 *ppDataDst
-            *pnSizeDst = objStream.total_out;
-            return true;
-        }
-        else
-
-    //    LOGERROR("compressToGzip(): deflate() != Z_STREAM_END , return false !");
-
-        free(*ppDataDst);
-        *ppDataDst = NULL;
-        *pnSizeDst = 0;
-
-        return false;
-    }
-
+    size_t m_nInLen; //当前缓冲区需要压缩的数据长度
 };
 
 #endif // CGZIPOSTREAM_H

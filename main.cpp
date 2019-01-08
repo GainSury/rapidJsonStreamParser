@@ -50,7 +50,7 @@ int main(int argc, char *argv[])
     using namespace rapidjson;
 
     //for linux test
-    const char *url =  "http://127.0.0.1:8086/query?db=iscs6000&chunked=true&chunk_size=2&epoch=ms&q=select%20%2A%20from%20ai_sample_result%20limit%201000";
+    const char *url =  "http://127.0.0.1:8086/query?db=iscs6000&chunked=true&chunk_size=2&epoch=ms&q=select%20%2A%20from%20ai_sample_result%20limit%201000000";
 
     //for linux test generate line protocol
 //    const char *url =    "http://127.0.0.1:8086/query?db=iscs6000&chunked=true&pretty=true&chunk_size=2&epoch=ms&q=SELECT%20key_id_tag%2Cstatus%2Cvalue%2Ctime%20FROM%20ai_sample_result%20limit%2010";
@@ -76,11 +76,8 @@ int main(int argc, char *argv[])
     UrlReadStream stream(handle);
 
     Reader reader;
-//    MyHandler handler;
 
-
-    QString exportFilePath = "/home/logan/Desktop/export.txt.gz";
-    CGZipOStream os(exportFilePath);
+    CGZipOStream os(QString("/home/logan/Desktop/export.txt.gz"));
 
     if(!os)
     {
@@ -99,15 +96,12 @@ int main(int argc, char *argv[])
         std::cout << "Error at offset " << reader.GetErrorOffset() << ": " << GetParseError_En(reader.GetParseErrorCode()) << std::endl;
         return EXIT_FAILURE;
     }
-    std::cout << "count: " << handler.nIndex  << "耗时: " << t.elapsed()/1000.0 << "s"<< std::endl;
+
     int nStatusCode = 0;
     curl_easy_getinfo(handle->handle.curl,CURLINFO_RESPONSE_CODE,&nStatusCode);
 
     std::cout << "status code: " << nStatusCode  << std::endl;
-
-
-
      url_fclose(handle);
-
+    std::cout << "count: " << handler.nIndex  << "耗时: " << t.elapsed()/1000.0 << "s"<< std::endl;
 }
 
