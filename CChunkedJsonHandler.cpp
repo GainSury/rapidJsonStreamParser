@@ -2,22 +2,26 @@
 
 
 
-CChunkedJsonHandler::CChunkedJsonHandler(CGZipOStream &gGzipOs):
+CChunkedJsonHandler::CChunkedJsonHandler(QString strFilePath):
     state_(kExpectObjectStart),
     nIndex(0),
-    m_gGzipOs(gGzipOs)
+    m_gGzipOs(strFilePath)
 {
-    //< todo to initialize
+    if(!m_gGzipOs)
+    {
+        //< logerror
+        return ;
+    }
 
-
+    genDMLHeader(m_gGzipOs);
 }
 
+
+
 bool CChunkedJsonHandler::StartObject() {
-    //        cout << "before StartObject():"  << stateToString(state_) << endl;
 
     switch (state_) {
     case kExpectObjectStart:
-        //            cout << "\n\n\nnew object ||||\n\n\n" << endl;
         state_ = kExpectResultOrErr;
         return true;
     case kExpectResultObjectStart:
@@ -35,8 +39,7 @@ bool CChunkedJsonHandler::StartObject() {
 }
 
 bool CChunkedJsonHandler::EndObject(SizeType memberCount) {
-    //        cout << "before EndObject():"  << stateToString(state_) << endl;
-
+    Q_UNUSED(memberCount);
     switch (state_) {
     case kExpectObjectEnd:
         state_ = kExpectObjectStart;
@@ -53,7 +56,6 @@ bool CChunkedJsonHandler::EndObject(SizeType memberCount) {
 }
 
 bool CChunkedJsonHandler::StartArray() {
-    //        cout << "before StartArray():"  << stateToString(state_) << endl;
 
     switch (state_) {
     case kExpectObjectStart:
@@ -85,8 +87,7 @@ bool CChunkedJsonHandler::StartArray() {
 }
 
 bool CChunkedJsonHandler::EndArray(SizeType elementCount) {
-    //        cout << "before EndArray():"  << stateToString(state_) << endl;
-
+    Q_UNUSED(elementCount);
     switch (state_) {
     case kExpectObjectStart:
         state_ = kExpectResultOrErr;
@@ -123,9 +124,9 @@ bool CChunkedJsonHandler::EndArray(SizeType elementCount) {
 }
 
 bool CChunkedJsonHandler::Key(const char *str, SizeType length, bool copy) {
-    //        cout << "before Key():"  << stateToString(state_) ;
-    //        cout << "||  Key(" << str << ", " << length << ", " << boolalpha << copy << ")" << endl;
 
+    Q_UNUSED(copy);
+    Q_UNUSED(length);
     switch (state_) {
     case kExpectResultOrErr:
         if( strcmp(str,"error")  == 0)
@@ -167,8 +168,7 @@ bool CChunkedJsonHandler::Key(const char *str, SizeType length, bool copy) {
 }
 
 bool CChunkedJsonHandler::Null() {
-    //        cout << "before Null():"  << stateToString(state_) ;
-    //        cout << "|| Null()" << endl;
+
     switch (state_) {
     case kExpectObjectStart:
         state_ = kExpectResultOrErr;
@@ -182,8 +182,7 @@ bool CChunkedJsonHandler::Null() {
 }
 
 bool CChunkedJsonHandler::Bool(bool b) {
-    //        cout << "before Bool():"  << stateToString(state_) ;
-    //        cout << "|| Bool(" << boolalpha << b << ")" << endl;
+
     switch (state_) {
     case kExpectObjectStart:
         state_ = kExpectResultOrErr;
@@ -209,8 +208,9 @@ bool CChunkedJsonHandler::Bool(bool b) {
 }
 
 bool CChunkedJsonHandler::String(const char *str, SizeType length, bool copy) {
-    //        cout << "before String():"  << stateToString(state_) ;
-    //        cout << "|| String(" << str << ", " << length << ", " << boolalpha << copy << ")" << endl;
+
+    Q_UNUSED(copy);
+    Q_UNUSED(length);
     switch (state_) {
     case kExpectErrDesc:
         state_ = kExpectObjectEnd;
@@ -232,8 +232,8 @@ bool CChunkedJsonHandler::String(const char *str, SizeType length, bool copy) {
 }
 
 bool CChunkedJsonHandler::RawNumber(const Ch *str, SizeType length, bool copy){
-    //        cout << "before RawNumber():"  << stateToString(state_) ;
-    //        cout << "|| RawNumber(" << str << ", " << length << ", " << boolalpha << copy << ")" << endl;
+    Q_UNUSED(copy);
+    Q_UNUSED(length);
     switch (state_) {
     case kExpectValueNum:
         state_ = kExpectKeySeries;
@@ -244,6 +244,24 @@ bool CChunkedJsonHandler::RawNumber(const Ch *str, SizeType length, bool copy){
     default:
         return false;
     }
+}
+
+void CChunkedJsonHandler::genDMLHeader(CChunkedJsonHandler::CGZipOStream &os)
+{
+
+    //        linux header
+    os << "# DML\n" << "# CONTEXT-DATABASE:iscs6000\n" << "# CONTEXT-RETENTION-POLICY:autogen\n" << "# writing tsm data\n";
+    //    std::cout <<"# DML\n"
+    //                "# CONTEXT-DATABASE:iscs60000\n"
+    //                "# CONTEXT-RETENTION-POLICY:autogen\n"
+    //                "# writing tsm data" << std::endl;
+
+    //    mac header
+    //    std::cout <<" # DML\n"
+    //             "# CONTEXT-DATABASE:NOAA_water_database\n"
+    //             "# CONTEXT-RETENTION-POLICY:autogen\n"
+    //             "# writing tsm data" << std::endl;
+
 }
 
 std::string CChunkedJsonHandler::stateToString(CChunkedJsonHandler::State state)
@@ -311,4 +329,71 @@ std::string CChunkedJsonHandler::stateToString(CChunkedJsonHandler::State state)
     default:
         return "unknown state";
     }
+}
+
+CChunkedJsonHandler::CGZipOStream::operator bool() const
+{
+    return m_bOkState;
+}
+
+CChunkedJsonHandler::CGZipOStream::CGZipOStream(QString filePath_):
+    m_destFile(filePath_)
+  , m_nBufSize(1 << 16) //65536
+  , m_nInLen(0)
+{
+    m_bOkState = m_destFile.open(QIODevice::WriteOnly);
+
+    //< 初始化z_stream头
+    m_objStream.zalloc = Z_NULL;
+    m_objStream.zfree = Z_NULL;
+    m_objStream.opaque = Z_NULL;
+
+    //< MAX_WBITS+16 : 使生成的目标内存中包含gzip头尾
+    int nRet = deflateInit2(&m_objStream, Z_DEFAULT_COMPRESSION, Z_DEFLATED,
+                            MAX_WBITS + 16, 8, Z_DEFAULT_STRATEGY);
+
+    if(nRet != Z_OK)
+    {
+        // todo logerrror
+
+        m_bOkState = false;
+        return ;
+    }
+
+    //< 分配缓冲区
+    m_inBuf = (char*)malloc(m_nBufSize * sizeof(char));
+    m_outBuf =(char*)malloc(m_nBufSize * sizeof(char));
+}
+
+CChunkedJsonHandler::CGZipOStream::~CGZipOStream()
+{
+    //< 更新输入输出缓冲区的参数
+    m_objStream.next_in =  (z_const Bytef *)m_inBuf;
+    m_objStream.avail_in = (uInt)m_nInLen;
+
+    int nRet;
+
+    do{
+        m_objStream.next_out = (Bytef *)m_outBuf;
+        m_objStream.avail_out = (uInt)m_nBufSize; // 不检查avail_out 因为分配了足够的空间
+        nRet = deflate( &m_objStream , Z_FINISH );
+        //< 写入流数据
+        int nRcWrite = m_destFile.write((char *)m_outBuf
+                                        , (char*)m_objStream.next_out - m_outBuf);
+        std::cout << "finish Write: " << nRcWrite << " writesize: "<< (char*)m_objStream.next_out - m_outBuf << std::endl;
+        if(nRet == Z_STREAM_END )
+            break;
+    }while( m_objStream.avail_out == 0 );
+
+    if (deflateEnd(&m_objStream) != Z_OK)
+    {
+        //< logerror
+    }
+
+
+    free(m_outBuf);
+    free(m_inBuf);
+    m_destFile.close();
+
+
 }
